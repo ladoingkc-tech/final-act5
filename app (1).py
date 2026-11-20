@@ -2,19 +2,46 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import os
 
-classification_model = joblib.load("delivery_classification.pkl")
-regression_model = joblib.load("delivery_regression.pkl")
-
+# Page Configuration
 st.set_page_config(
     page_title="Smart Delivery Prediction",
     page_icon="🚚",
     layout="wide"
 )
 
-st.title("🚚 Smart Delivery Prediction System")
-st.write("Predict delivery status and estimated arrival time.")
+# Load Machine Learning Models
+@st.cache_resource
+def load_models():
 
+    classification_model = joblib.load("delivery_classification.pkl")
+    regression_model = joblib.load("delivery_regression.pkl")
+
+    return classification_model, regression_model
+
+
+try:
+    classification_model, regression_model = load_models()
+
+except Exception as e:
+    st.error(f"Unable to load machine learning models: {e}")
+    st.info(
+        "Please check that both .pkl files are uploaded "
+        "to your GitHub repository."
+    )
+    st.stop()
+
+
+# Application Title
+st.title("🚚 Smart Delivery Prediction System")
+
+st.write(
+    "Predict delivery status and estimated arrival time "
+    "using Machine Learning."
+)
+
+# Sidebar Navigation
 st.sidebar.title("Navigation")
 
 page = st.sidebar.radio(
@@ -22,6 +49,8 @@ page = st.sidebar.radio(
     ["Home", "Delivery Prediction"]
 )
 
+
+# HOME PAGE
 if page == "Home":
 
     st.title("Welcome to Smart Delivery Prediction!")
@@ -30,11 +59,26 @@ if page == "Home":
     This system uses machine learning to help predict
     delivery delays and estimate delivery times.
 
-    **Classification:** Predicts On-Time or Delayed.
+    **Classification:** Predicts whether a delivery is
+    On-Time or Delayed.
 
     **Regression:** Estimates delivery time in minutes.
     """)
 
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("📦 Delivery Classification")
+        st.write("Identifies whether a delivery will arrive on time or be delayed.")
+
+    with col2:
+        st.subheader("⏱️ Delivery Time Prediction")
+        st.write("Estimates the expected delivery duration in minutes.")
+
+
+# DELIVERY PREDICTION PAGE
 elif page == "Delivery Prediction":
 
     st.header("Enter Delivery Information")
@@ -61,7 +105,7 @@ elif page == "Delivery Prediction":
         value=15.0
     )
 
-    if st.button("Predict Delivery"):
+    if st.button("🚚 Predict Delivery", use_container_width=True):
 
         data = pd.DataFrame({
             "Distance": [distance],
@@ -70,21 +114,31 @@ elif page == "Delivery Prediction":
             "Preparation_Time": [preparation]
         })
 
-        status = classification_model.predict(data)[0]
+        try:
 
-        time = regression_model.predict(data)[0]
+            # Classification Prediction
+            status = classification_model.predict(data)[0]
 
-        st.subheader("Prediction Results")
+            # Regression Prediction
+            time = regression_model.predict(data)[0]
 
-        if status == "Delayed":
-            st.warning("Delivery Status: DELAYED")
-        else:
-            st.success("Delivery Status: ON-TIME")
+            st.divider()
+            st.subheader("Prediction Results")
 
-        st.metric(
-            "Estimated Delivery Time",
-            f"{time:.1f} minutes"
-        )
+            if status == "Delayed":
+                st.warning("⚠️ Delivery Status: DELAYED")
+            else:
+                st.success("✅ Delivery Status: ON-TIME")
 
+            st.metric(
+                label="Estimated Delivery Time",
+                value=f"{time:.1f} minutes"
+            )
+
+        except Exception as e:
+            st.error(f"Prediction Error: {e}")
+
+
+# FOOTER
 st.sidebar.markdown("---")
 st.sidebar.caption("Artificial Intelligence 5.0")
