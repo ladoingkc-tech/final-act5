@@ -1,9 +1,9 @@
+
 import streamlit as st
 import pandas as pd
 import joblib
 import json
-import matplotlib.pyplot as plt
-import seaborn as sns
+from pathlib import Path
 
 # ==========================================
 # 1. PAGE CONFIGURATION
@@ -15,39 +15,56 @@ st.set_page_config(
     layout="wide"
 )
 
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_DIR = BASE_DIR / "models"
+
 # ==========================================
-# 2. LOAD TRAINED MODELS
+# 2. LOAD TRAINED MODELS AND DATA
 # ==========================================
 
 @st.cache_resource
 def load_models():
 
     classification_model = joblib.load(
-        "models/classification_model.pkl"
+        MODEL_DIR / "classification_model.pkl"
     )
 
     regression_model = joblib.load(
-        "models/regression_model.pkl"
+        MODEL_DIR / "regression_model.pkl"
     )
 
     return classification_model, regression_model
 
 
-classification_model, regression_model = load_models()
+@st.cache_data
+def load_data():
 
-# Load evaluation results
-with open("models/evaluation.json", "r") as file:
-    evaluation = json.load(file)
+    with open(MODEL_DIR / "evaluation.json", "r") as file:
+        evaluation = json.load(file)
 
-# Load dataset
-df = pd.read_csv("delivery_dataset.csv")
+    df = pd.read_csv(BASE_DIR / "delivery_dataset.csv")
+
+    return evaluation, df
+
+
+try:
+    classification_model, regression_model = load_models()
+    evaluation, df = load_data()
+
+except Exception as e:
+    st.error(f"Application Loading Error: {e}")
+    st.info(
+        "Check that your models folder, model files, "
+        "evaluation.json, and delivery_dataset.csv are uploaded."
+    )
+    st.stop()
+
 
 # ==========================================
 # 3. SIDEBAR NAVIGATION
 # ==========================================
 
 st.sidebar.title("🚚 Smart Delivery System")
-
 st.sidebar.write("Machine Learning Dashboard")
 
 page = st.sidebar.radio(
@@ -67,10 +84,9 @@ st.sidebar.caption(
     "Smart Delivery Time and Order Status Prediction System"
 )
 
+
 # ==========================================
 # 4. INPUT FUNCTION
-# IMPORTANT: THIS MUST BE BEFORE THE
-# IF-ELIF PAGE NAVIGATION
 # ==========================================
 
 def delivery_inputs(prefix):
@@ -78,13 +94,13 @@ def delivery_inputs(prefix):
     col1, col2 = st.columns(2)
 
     with col1:
+
         distance = st.number_input(
             "Delivery Distance (km)",
-            min_value=1,
-            max_value=100,
-            value=5,
-            step=1,
-            format="%d",
+            min_value=1.0,
+            max_value=100.0,
+            value=5.0,
+            step=1.0,
             key=f"{prefix}_distance"
         )
 
@@ -198,29 +214,40 @@ if page == "Home Dashboard":
 
     with col1:
 
-        st.info(
-            """
-            ### Order Status Classification
+        st.info("""
+        ### 📦 Order Status Classification
 
-            Predict the delivery status of an order.
+        Predict the delivery status of an order.
 
-            Output:
-            - On Time
-            - Delayed
-            """
-        )
+        **Output:**
+        - On Time
+        - Delayed
+        """)
 
     with col2:
 
-        st.success(
-            """
-            ### Delivery Time Regression
+        st.success("""
+        ### ⏱️ Delivery Time Regression
 
-            Estimate the delivery completion time.
+        Estimate the delivery completion time.
 
-            Output:
-            - Predicted minutes
-            """
+        **Output:**
+        - Predicted minutes
+        """)
+
+    st.divider()
+
+    st.subheader("Order Status Summary")
+
+    if "order_status" in df.columns:
+
+        status_counts = df["order_status"].value_counts()
+
+        st.bar_chart(status_counts)
+
+        st.dataframe(
+            status_counts.rename("Number of Orders"),
+            use_container_width=True
         )
 
 
@@ -269,19 +296,25 @@ elif page == "Dataset Overview":
 
     st.subheader("Order Status Distribution")
 
-    fig, ax = plt.subplots()
+    status_counts = df["order_status"].value_counts()
 
-    df["order_status"].value_counts().plot(
-        kind="bar",
-        ax=ax
-    )
+    st.bar_chart(status_counts)
 
-    ax.set_title("Order Status Distribution")
-    ax.set_xlabel("Order Status")
-    ax.set_ylabel("Number of Orders")
+    st.subheader("Delivery Type Distribution")
 
-    st.pyplot(fig)
-    plt.close(fig)
+    if "delivery_type" in df.columns:
+
+        st.bar_chart(
+            df["delivery_type"].value_counts()
+        )
+
+    st.subheader("Traffic Distribution")
+
+    if "traffic" in df.columns:
+
+        st.bar_chart(
+            df["traffic"].value_counts()
+        )
 
 
 # ==========================================
@@ -306,23 +339,49 @@ elif page == "Order Status Prediction":
         use_container_width=True
     ):
 
-        prediction = classification_model.predict(
-            input_data
-        )[0]
+        try:
 
-        st.subheader("Prediction Result")
+            prediction = classification_model.predict(
+                input_data
+            )[0]
 
-        if prediction == "On Time":
+            st.subheader("Prediction Result")
 
-            st.success(
-                "The order is predicted to arrive ON TIME."
-            )
+            status = str(prediction).strip().lower()
 
-        else:
+            if status in ["on time", "ontime", "on_time"]:
 
-            st.error(
-                "The order is predicted to be DELAYED."
-            )
+                st.success(
+                    "✅ The order is predicted to arrive ON TIME."
+                )
+
+            else:
+
+                st.error(
+                    "⚠️ The order is predicted to be DELAYED."
+                )
+
+            if hasattr(classification_model, "predict_proba"):
+
+                probabilities = classification_model.predict_proba(
+                    input_data
+                )[0]
+
+                classes = classification_model.classes_
+
+                st.subheader("Prediction Confidence")
+
+                for label, probability in zip(classes, probabilities):
+
+                    st.write(
+                        f"{label}: {probability * 100:.2f}%"
+                    )
+
+                    st.progress(float(probability))
+
+        except Exception as e:
+
+            st.error(f"Classification Error: {e}")
 
 
 # ==========================================
@@ -347,19 +406,30 @@ elif page == "Delivery Time Prediction":
         use_container_width=True
     ):
 
-        prediction = regression_model.predict(
-            input_data
-        )[0]
+        try:
 
-        st.subheader("Estimated Delivery Time")
+            prediction = regression_model.predict(
+                input_data
+            )[0]
 
-        st.success(
-            f"Predicted Delivery Time: {prediction:.2f} minutes"
-        )
+            st.subheader("Estimated Delivery Time")
 
-        st.info(
-            f"Approximately {round(prediction)} minutes."
-        )
+            st.success(
+                f"Predicted Delivery Time: {prediction:.2f} minutes"
+            )
+
+            st.metric(
+                "Estimated Minutes",
+                f"{prediction:.2f}"
+            )
+
+            st.info(
+                f"Approximately {round(prediction)} minutes."
+            )
+
+        except Exception as e:
+
+            st.error(f"Regression Error: {e}")
 
 
 # ==========================================
@@ -370,9 +440,7 @@ elif page == "Model Evaluation":
 
     st.title("📈 Model Evaluation")
 
-    # --------------------------------------
     # CLASSIFICATION RESULTS
-    # --------------------------------------
 
     st.header("Classification Model")
 
@@ -404,28 +472,22 @@ elif page == "Model Evaluation":
 
     cm = classification["confusion_matrix"]
 
-    fig, ax = plt.subplots(figsize=(6, 4))
-
-    sns.heatmap(
+    confusion_df = pd.DataFrame(
         cm,
-        annot=True,
-        fmt="d",
-        cmap="Blues",
-        xticklabels=["On Time", "Delayed"],
-        yticklabels=["On Time", "Delayed"],
-        ax=ax
+        index=["Actual On Time", "Actual Delayed"],
+        columns=["Predicted On Time", "Predicted Delayed"]
     )
 
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("Actual")
-    ax.set_title("Classification Confusion Matrix")
+    st.dataframe(
+        confusion_df,
+        use_container_width=True
+    )
 
-    st.pyplot(fig)
-    plt.close(fig)
+    st.caption(
+        "The confusion matrix compares actual and predicted order statuses."
+    )
 
-    # --------------------------------------
     # REGRESSION RESULTS
-    # --------------------------------------
 
     st.divider()
 
@@ -437,7 +499,7 @@ elif page == "Model Evaluation":
 
     col1.metric(
         "MAE",
-        f"{regression['mae']:.2f}"
+        f"{regression['mae']:.2f} minutes"
     )
 
     col2.metric(
@@ -449,7 +511,7 @@ elif page == "Model Evaluation":
 
     col3.metric(
         "RMSE",
-        f"{regression['rmse']:.2f}"
+        f"{regression['rmse']:.2f} minutes"
     )
 
     col4.metric(
